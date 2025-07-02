@@ -47,6 +47,7 @@ def sample_directions(n_samples: int) -> np.ndarray:
     
     return points
 
+
 # [claude]
 def ray_triangle_intersection(ray_origin: np.ndarray, ray_direction: np.ndarray, 
                             triangle_vertices: np.ndarray, epsilon: float = 1e-8) -> Optional[float]:
@@ -80,6 +81,7 @@ def ray_triangle_intersection(ray_origin: np.ndarray, ray_direction: np.ndarray,
     
     return None
 
+
 # [claude]
 def surface_distances_uniform_rays(vertices: np.ndarray, triangles: np.ndarray, 
                                  com: np.ndarray, n_rays: int = 1000) -> Tuple[np.ndarray, np.ndarray]:
@@ -109,3 +111,50 @@ def surface_distances_uniform_rays(vertices: np.ndarray, triangles: np.ndarray,
         distances[i] = min_distance if found_intersection else 0.0
     
     return ray_directions, distances
+
+
+def cartesian_to_spherical(directions: np.ndarray) -> np.ndarray:
+    """returns array of shape (..., 2) with (theta, phi) in [0, 2π] × [0, π]"""
+    assert np.all(np.abs(np.linalg.norm(directions, axis=-1) - 1) < 1e-6), "directions must be unit vectors"
+    
+    x, y, z = directions[..., 0], directions[..., 1], directions[..., 2]
+    theta = np.arctan2(y, x)
+    theta = np.where(theta < 0, theta + 2*np.pi, theta)
+    phi = np.arccos(z)
+    
+    return np.stack([theta, phi], axis=-1)
+
+# [claude]
+def sphere2vec_embedding(directions: np.ndarray) -> np.ndarray:
+    """
+    Sphere2Vec embedding that preserves spherical distances.
+    Based on "Sphere2Vec: Multi-Scale Representation Learning over a Spherical Surface"
+    
+    Args:
+        directions: array of shape (..., 3) with unit direction vectors
+        scales: list of frequency scales (default: [1, 2, 4, 8])
+        
+    Returns:
+        array of shape (..., 3*len(scales)) with distance-preserving 2D embedding
+    """
+    scales = [1, 2, 4, 8]
+    
+    spherical = cartesian_to_spherical(directions)
+    theta, phi = spherical[..., 0], spherical[..., 1]
+    
+    embeddings = []
+    for scale in scales:
+        # Scale coordinates
+        theta_s = theta * scale
+        phi_s = phi * scale
+        
+        # Sphere2Vec components: [sin(φ), cos(φ)cos(λ), cos(φ)sin(λ)]
+        # This preserves spherical distance: <PE(x₁), PE(x₂)> = cos(Δd/R)
+        emb = np.stack([
+            np.sin(phi_s),
+            np.cos(phi_s) * np.cos(theta_s),
+            np.cos(phi_s) * np.sin(theta_s)
+        ], axis=-1)
+        embeddings.append(emb)
+    
+    return np.concatenate(embeddings, axis=-1)
