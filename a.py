@@ -1,7 +1,7 @@
 import numpy as np
 from stl import mesh
 from scipy.spatial import ConvexHull
-from typing import Tuple, List
+from typing import Tuple, List, Optional, Union
 
 
 def read_stl_file(filename: str) -> Tuple[np.ndarray, np.ndarray]:
@@ -24,3 +24,97 @@ def center_of_mass(vertices: np.ndarray, triangles: np.ndarray) -> np.ndarray:
         total_volume += volume_contribution
         weighted_centroid += volume_contribution * tetrahedron_centroid
     return weighted_centroid / total_volume
+
+
+# [claude] Fibonacci spiral sampling
+def sample_directions(n_samples: int) -> np.ndarray:
+    """returns array of shape (n_samples, 3) of unit vectors."""
+    points = np.zeros((n_samples, 3))
+    golden_ratio = (1 + 5**0.5) / 2
+    
+    # Fibonacci spiral
+    for i in range(n_samples):
+        # Latitude (y-coordinate)
+        y = 1 - (i / (n_samples - 1)) * 2  # y goes from 1 to -1
+        # Longitude 
+        theta = 2 * np.pi * i / golden_ratio
+        
+        radius = np.sqrt(1 - y * y)
+        x = np.cos(theta) * radius
+        z = np.sin(theta) * radius
+        
+        points[i] = [x, y, z]
+    
+    return points
+
+# [claude]
+def ray_triangle_intersection(ray_origin: np.ndarray, ray_direction: np.ndarray, 
+                            triangle_vertices: np.ndarray, epsilon: float = 1e-8) -> Optional[float]:
+    """returns distance along ray to intersection, or None if no intersection."""
+    v0, v1, v2 = triangle_vertices
+    edge1 = v1 - v0
+    edge2 = v2 - v0
+    h = np.cross(ray_direction, edge2)
+    a = np.dot(edge1, h)
+    
+    if abs(a) < epsilon:
+        return None  # Ray is parallel to triangle
+    
+    f = 1.0 / a
+    s = ray_origin - v0
+    u = f * np.dot(s, h)
+    
+    if u < 0.0 or u > 1.0:
+        return None
+    
+    q = np.cross(s, edge1)
+    v = f * np.dot(ray_direction, q)
+    
+    if v < 0.0 or u + v > 1.0:
+        return None
+    
+    t = f * np.dot(edge2, q)
+    
+    if t > epsilon:
+        return t
+    
+    return None
+
+# [claude]
+def surface_distances_uniform_rays(vertices: np.ndarray, triangles: np.ndarray, 
+                                 com: np.ndarray, n_rays: int = 1000) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Sample surface distances using evenly distributed rays in 3D space.
+    
+    Args:
+        vertices: mesh vertices
+        triangles: triangle vertex indices
+        com: center of mass point
+        n_rays: number of evenly distributed rays to cast
+        
+    Returns:
+        (ray_directions, distances) where:
+        - ray_directions: array of shape (n_rays, 3) with unit direction vectors
+        - distances: array of shape (n_rays,) with distances to surface (0 if no intersection)
+    """
+    # Generate evenly distributed ray directions
+    ray_directions = sample_directions(n_rays)
+    distances = np.zeros(n_rays)
+    
+    # TODO: parallelize this
+    for i, ray_dir in enumerate(ray_directions):
+        min_distance = float('inf')
+        found_intersection = False
+        
+        # Check intersection with all triangles
+        for triangle_indices in triangles:
+            triangle_verts = vertices[triangle_indices]
+            distance = ray_triangle_intersection(com, ray_dir, triangle_verts)
+            
+            if distance is not None:
+                min_distance = min(min_distance, distance)
+                found_intersection = True
+        
+        distances[i] = min_distance if found_intersection else 0.0
+    
+    return ray_directions, distances
