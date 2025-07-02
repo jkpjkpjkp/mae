@@ -2,7 +2,7 @@ import numpy as np
 from stl import mesh
 from scipy.spatial import ConvexHull
 from typing import Tuple, List, Optional, Union
-
+import healpy as hp
 
 def read_stl_file(filename: str) -> Tuple[np.ndarray, np.ndarray]:
     """returns: (unique_vertices, triangles_vertex_indices)"""
@@ -24,28 +24,6 @@ def center_of_mass(vertices: np.ndarray, triangles: np.ndarray) -> np.ndarray:
         total_volume += volume_contribution
         weighted_centroid += volume_contribution * tetrahedron_centroid
     return weighted_centroid / total_volume
-
-
-# [claude] Fibonacci spiral sampling
-def sample_directions(n_samples: int) -> np.ndarray:
-    """returns array of shape (n_samples, 3) of unit vectors."""
-    points = np.zeros((n_samples, 3))
-    golden_ratio = (1 + 5**0.5) / 2
-    
-    # Fibonacci spiral
-    for i in range(n_samples):
-        # Latitude (y-coordinate)
-        y = 1 - (i / (n_samples - 1)) * 2  # y goes from 1 to -1
-        # Longitude 
-        theta = 2 * np.pi * i / golden_ratio
-        
-        radius = np.sqrt(1 - y * y)
-        x = np.cos(theta) * radius
-        z = np.sin(theta) * radius
-        
-        points[i] = [x, y, z]
-    
-    return points
 
 
 # [claude]
@@ -113,48 +91,30 @@ def surface_distances_uniform_rays(vertices: np.ndarray, triangles: np.ndarray,
     return ray_directions, distances
 
 
-def cartesian_to_spherical(directions: np.ndarray) -> np.ndarray:
-    """returns array of shape (..., 2) with (theta, phi) in [0, 2π] × [0, π]"""
-    assert np.all(np.abs(np.linalg.norm(directions, axis=-1) - 1) < 1e-6), "directions must be unit vectors"
+def surface_distances_healpix(vertices: np.ndarray, triangles: np.ndarray, 
+                             com: np.ndarray, nside: int = 64) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    npix = hp.nside2npix(nside)
+    pixel_indices = np.arange(npix)
     
-    x, y, z = directions[..., 0], directions[..., 1], directions[..., 2]
-    theta = np.arctan2(y, x)
-    theta = np.where(theta < 0, theta + 2*np.pi, theta)
-    phi = np.arccos(z)
+    pixel_directions = np.array(hp.pix2vec(nside, pixel_indices)).T
     
-    return np.stack([theta, phi], axis=-1)
+    pixel_distances = np.zeros(npix)
+    
+    for i, ray_dir in enumerate(pixel_directions):
+        for triangle_indices in triangles:
+            triangle_verts = vertices[triangle_indices]
+            distance = ray_triangle_intersection(com, ray_dir, triangle_verts)
+            
+            if distance is not None:
+                pixel_distances[i] = distance
+                break
 
-# [claude]
-def sphere2vec_embedding(directions: np.ndarray) -> np.ndarray:
-    """
-    Sphere2Vec embedding that preserves spherical distances.
-    Based on "Sphere2Vec: Multi-Scale Representation Learning over a Spherical Surface"
-    
-    Args:
-        directions: array of shape (..., 3) with unit direction vectors
-        scales: list of frequency scales (default: [1, 2, 4, 8])
-        
-    Returns:
-        array of shape (..., 3*len(scales)) with distance-preserving 2D embedding
-    """
-    scales = [1, 2, 4, 8]
-    
-    spherical = cartesian_to_spherical(directions)
-    theta, phi = spherical[..., 0], spherical[..., 1]
-    
-    embeddings = []
-    for scale in scales:
-        # Scale coordinates
-        theta_s = theta * scale
-        phi_s = phi * scale
-        
-        # Sphere2Vec components: [sin(φ), cos(φ)cos(λ), cos(φ)sin(λ)]
-        # This preserves spherical distance: <PE(x₁), PE(x₂)> = cos(Δd/R)
-        emb = np.stack([
-            np.sin(phi_s),
-            np.cos(phi_s) * np.cos(theta_s),
-            np.cos(phi_s) * np.sin(theta_s)
-        ], axis=-1)
-        embeddings.append(emb)
-    
-    return np.concatenate(embeddings, axis=-1)
+    assert np.all(pixel_distances > 0), "No intersection found for some pixels"
+
+    return pixel_directions, pixel_distances, pixel_indices
+
+
+def healpix_to_spherical(pixel_indices: np.ndarray, nside: int) -> np.ndarray:
+    """Convert HEALPix pixel indices to spherical coordinates (theta, phi)."""
+    theta, phi = hp.pix2ang(nside, pixel_indices)
+    return np.column_stack([theta, phi])
