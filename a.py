@@ -3,6 +3,7 @@ from stl import mesh
 from scipy.spatial import ConvexHull
 from typing import Tuple, List, Optional, Union
 import healpy as hp
+from transformers.models.deepseek_v3.modeling_deepseek_v3 import apply_rotary_pos_emb
 
 def read_stl_file(filename: str) -> Tuple[np.ndarray, np.ndarray]:
     """returns: (unique_vertices, triangles_vertex_indices)"""
@@ -26,7 +27,6 @@ def center_of_mass(vertices: np.ndarray, triangles: np.ndarray) -> np.ndarray:
     return weighted_centroid / total_volume
 
 
-# [claude, o3 checked]
 def ray_triangle_intersection(ray_origin: np.ndarray, ray_direction: np.ndarray, 
                             triangle_vertices: np.ndarray, epsilon: float = 1e-8) -> Optional[float]:
     """returns distance along ray to intersection, or None if no intersection."""
@@ -37,7 +37,7 @@ def ray_triangle_intersection(ray_origin: np.ndarray, ray_direction: np.ndarray,
     h = np.cross(ray_direction, edge2)
     a = np.dot(edge1, h)
     if abs(a) < epsilon:
-        return None  # parallel
+        return None
     f = 1.0 / a
     s = ray_origin - v0
     u = f * np.dot(s, h)
@@ -50,14 +50,15 @@ def ray_triangle_intersection(ray_origin: np.ndarray, ray_direction: np.ndarray,
         return t
     return None
 
-
+# [testing]
 def surface_distances_healpix(vertices: np.ndarray, triangles: np.ndarray, 
-                              com: np.ndarray, nside: int = 64) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                              com: np.ndarray, nside: int = 32) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    assert nside == 2**int(np.log2(nside)), "nside must be a power of 2"
     npix = hp.nside2npix(nside)
     pixel_indices = np.arange(npix)
-    
     pixel_directions = np.array(hp.pix2vec(nside, pixel_indices, nest=True)).T
-    
+    assert np.all(np.isclose(np.linalg.norm(pixel_directions, axis=0), 1)), "hp.pix2vec must be unit vectors"
+
     pixel_distances = np.zeros(npix)
     
     for i, ray_dir in enumerate(pixel_directions):
@@ -72,40 +73,3 @@ def surface_distances_healpix(vertices: np.ndarray, triangles: np.ndarray,
     assert np.all(pixel_distances > 0), "No intersection found for some pixels"
 
     return pixel_directions, pixel_distances, pixel_indices
-
-
-def rope_circular(pixel_indices: np.ndarray, nside: int, embedding_dim: int) -> np.ndarray:
-    """
-    Circular RoPE (Rotary Position Embedding) for HEALPix pixels respecting spherical topology.
-    
-    Treats the pixel index space as circular since pixels on a sphere naturally wrap around.
-    Uses RoPE-style rotations where adjacent pixels have similar rotational phases.
-    
-    Args:
-        pixel_indices: array of HEALPix pixel indices in NESTED ordering
-        nside: HEALPix resolution parameter  
-        embedding_dim: dimension of output embedding vectors (must be even)
-        
-    Returns:
-        array of shape (len(pixel_indices), embedding_dim) with rotary positional embeddings
-    """
-    npix = hp.nside2npix(nside)
-    
-    # Map pixel indices to circular coordinates [0, 2π)
-    # This respects that pixel 0 is "adjacent" to pixel npix-1 on the sphere
-    circular_positions = 2 * np.pi * pixel_indices.astype(np.float32) / npix
-    
-    embeddings = np.zeros((len(pixel_indices), embedding_dim))
-    
-    for i in range(0, embedding_dim, 2):
-        # Frequency decreases with dimension (like original RoPE)
-        freq = 1.0 / (10000.0 ** (i / embedding_dim))
-        
-        # Apply rotational encoding: each position gets a rotation matrix
-        angles = circular_positions * freq
-        
-        # RoPE rotation: [cos(θ), sin(θ)] for each dimension pair
-        embeddings[:, i] = np.cos(angles)
-        embeddings[:, i + 1] = np.sin(angles)
-    
-    return embeddings

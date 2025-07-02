@@ -10,5 +10,7 @@ dependencies = [
     "scipy",
     "torch>=2.6.0",
     "torchvision",
-    "torchaudio"
+    "torchaudio",
+    "transformers>=4.53.0",
+    "healpy>=1.18.1",
 ]
