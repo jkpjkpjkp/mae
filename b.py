@@ -12,30 +12,38 @@ from transformers.models.deepseek_v3.configuration_deepseek_v3 import (
     DeepseekV3Config,
 )
 
+config = DeepseekV3Config(
+    vocab_size=-1,
+    hidden_size=128,
+    intermediate_size=128,
+    moe_intermediate_size=128,
+    num_hidden_layers=3,
+    num_attention_heads=8,
+    num_key_value_heads=8,
+    n_shared_experts=8,
+    n_routed_experts=-2,
+    kv_lora_rank=128,
+    q_lora_rank=None,
+    qk_rope_head_dim=64,
+    v_head_dim=128,
+)
+
 class MaskedAutoencoderViT(nn.Module):
-    def __init__(self, nside=32, patch_size=16,
-                 embed_dim=1024, depth=24, num_heads=16,
-                 decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False):
+    def __init__(self, nside=32, patch_size=32,
+                 embed_dim=128, depth=3, num_heads=8,
+                 decoder_embed_dim=64, decoder_depth=3, decoder_num_heads=8,
+                 mlp_ratio=4.):
         super().__init__()
 
-        # --------------------------------------------------------------------------
-        # MAE encoder specifics
         npix = hp.nside2npix(nside)
         self.patch_embed = nn.Conv1d(1, embed_dim, kernel_size=patch_size, stride=patch_size)
+        assert npix % patch_size == 0, "patch_size must divide npix"
         num_patches = npix // patch_size
 
-        self.cos = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.sin = nn.Parameter(torch.zeros(1, 1, embed_dim))
-
         self.blocks = nn.ModuleList([
-            DeepseekV3Attention(DeepseekV3Config(), i)
+            DeepseekV3Attention(config, i)
             for i in range(depth)])
-        self.norm = norm_layer(embed_dim)
-        # --------------------------------------------------------------------------
 
-        # --------------------------------------------------------------------------
-        # MAE decoder specifics
         self.decoder_embed = nn.Linear(embed_dim, decoder_embed_dim, bias=True)
 
         self.mask_token = nn.Parameter(torch.zeros(1, 1, decoder_embed_dim))
@@ -43,14 +51,10 @@ class MaskedAutoencoderViT(nn.Module):
         self.decoder_pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, decoder_embed_dim), requires_grad=False)  # fixed sin-cos embedding
 
         self.decoder_blocks = nn.ModuleList([
-            DeepseekV3Attention(DeepseekV3Config(), i)
+            DeepseekV3Attention(config, i+depth)
             for i in range(decoder_depth)])
 
-        self.decoder_norm = norm_layer(decoder_embed_dim)
-        self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size**2, bias=True) # decoder to patch
-        # --------------------------------------------------------------------------
-
-        self.norm_pix_loss = norm_pix_loss
+        self.decoder_pred = nn.Linear(decoder_embed_dim, patch_size, bias=True)
 
         self.initialize_weights()
 
@@ -58,10 +62,6 @@ class MaskedAutoencoderViT(nn.Module):
         # initialize patch_embed like nn.Linear (instead of nn.Conv2d)
         w = self.patch_embed.weight.data
         torch.nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
-
-        # initialize cos and sin
-        torch.nn.init.normal_(self.cos, std=.02)
-        torch.nn.init.normal_(self.sin, std=.02)
 
         torch.nn.init.normal_(self.mask_token, std=.02)
 
@@ -109,16 +109,12 @@ class MaskedAutoencoderViT(nn.Module):
         # embed patches
         x = self.patch_embed(x)
 
-        # add pos embed w/o cls token
-        x = apply_rotary_pos_emb(x, x, self.cos, self.sin)
-
         # masking: length -> length * mask_ratio
         x, mask, ids_restore = self.random_masking(x, mask_ratio)
 
         # apply Transformer blocks
         for blk in self.blocks:
             x = blk(x)
-        x = self.norm(x)
 
         return x, mask, ids_restore
 
@@ -138,7 +134,6 @@ class MaskedAutoencoderViT(nn.Module):
         # apply Transformer blocks
         for blk in self.decoder_blocks:
             x = blk(x)
-        x = self.decoder_norm(x)
 
         # predictor projection
         x = self.decoder_pred(x)
@@ -173,26 +168,8 @@ class MaskedAutoencoderViT(nn.Module):
         return loss, pred, mask
 
 
-def mae_vit_base_patch16_dec512d8b(**kwargs):
-    model = MaskedAutoencoderViT(
-        patch_size=16, embed_dim=768, depth=12, num_heads=12,
-        decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-    return model
-
-
-def mae_vit_large_patch16_dec512d8b(**kwargs):
-    model = MaskedAutoencoderViT(
-        patch_size=16, embed_dim=1024, depth=24, num_heads=16,
-        decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-    return model
-
-
-def mae_vit_huge_patch14_dec512d8b(**kwargs):
-    model = MaskedAutoencoderViT(
-        patch_size=14, embed_dim=1280, depth=32, num_heads=16,
-        decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-    return model
-
+if __name__ == "__main__":
+    model = MaskedAutoencoderViT()
+    imgs = torch.randn(1, 1, 1024)
+    loss, pred, mask = model(imgs)
+    print(loss)
