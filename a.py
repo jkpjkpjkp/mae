@@ -57,7 +57,7 @@ def surface_distances_healpix(vertices: np.ndarray, triangles: np.ndarray,
     npix = hp.nside2npix(nside)
     pixel_indices = np.arange(npix)
     pixel_directions = np.array(hp.pix2vec(nside, pixel_indices, nest=True)).T
-    assert np.all(np.isclose(np.linalg.norm(pixel_directions, axis=0), 1)), "hp.pix2vec must be unit vectors"
+    assert np.all(np.isclose(np.linalg.norm(pixel_directions, axis=1), 1)), "hp.pix2vec must be unit vectors"
 
     pixel_distances = np.zeros(npix)
     

@@ -1,14 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-# --------------------------------------------------------
-# References:
-# timm: https://github.com/rwightman/pytorch-image-models/tree/master/timm
-# DeiT: https://github.com/facebookresearch/deit
-# --------------------------------------------------------
-
 from functools import partial
 
 import torch
@@ -16,9 +5,6 @@ import torch.nn as nn
 import numpy as np
 
 from timm.models.vision_transformer import Block
-
-from util.pos_embed import get_2d_sincos_pos_embed
-
 
 class PatchEmbed1D(nn.Module):
     """ 1D sequence to Patch Embedding
@@ -77,8 +63,11 @@ class MaskedAutoencoder1D(nn.Module):
     def __init__(self, seq_len=12288, patch_size=64, in_chans=1,
                  embed_dim=1024, depth=24, num_heads=16,
                  decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
-                 mlp_ratio=4., norm_layer=nn.LayerNorm, norm_loss=False):
+                 mlp_ratio=4., norm_layer=None, norm_loss=False):
         super().__init__()
+        
+        if norm_layer is None:
+            norm_layer = nn.LayerNorm
 
         # --------------------------------------------------------------------------
         # MAE encoder specifics
@@ -89,7 +78,7 @@ class MaskedAutoencoder1D(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim), requires_grad=False)  # fixed sin-cos embedding
 
         self.blocks = nn.ModuleList([
-            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
+            Block(embed_dim, num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
         # --------------------------------------------------------------------------
@@ -103,7 +92,7 @@ class MaskedAutoencoder1D(nn.Module):
         self.decoder_pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, decoder_embed_dim), requires_grad=False)  # fixed sin-cos embedding
 
         self.decoder_blocks = nn.ModuleList([
-            Block(decoder_embed_dim, decoder_num_heads, mlp_ratio, qkv_bias=True, qk_scale=None, norm_layer=norm_layer)
+            Block(decoder_embed_dim, decoder_num_heads, mlp_ratio, qkv_bias=True, norm_layer=norm_layer)
             for i in range(decoder_depth)])
 
         self.decoder_norm = norm_layer(decoder_embed_dim)
@@ -273,6 +262,40 @@ class MaskedAutoencoder1D(nn.Module):
         return loss, pred, mask
 
 
+def mae_1d_tiny_patch64(**kwargs):
+    model = MaskedAutoencoder1D(
+        seq_len=12288, patch_size=64, in_chans=1, embed_dim=384, depth=6, num_heads=6,
+        decoder_embed_dim=256, decoder_depth=4, decoder_num_heads=8,
+        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    return model
+
+
+def mae_1d_small_patch64(**kwargs):
+    model = MaskedAutoencoder1D(
+        seq_len=12288, patch_size=64, in_chans=1, embed_dim=512, depth=8, num_heads=8,
+        decoder_embed_dim=256, decoder_depth=4, decoder_num_heads=8,
+        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    return model
+
+
+def mae_1d_tiny_patch64_short(**kwargs):
+    """For nside=16, seq_len=3072, 48 patches"""
+    model = MaskedAutoencoder1D(
+        seq_len=3072, patch_size=64, in_chans=1, embed_dim=384, depth=6, num_heads=6,
+        decoder_embed_dim=256, decoder_depth=4, decoder_num_heads=8,
+        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    return model
+
+
+def mae_1d_small_patch64_short(**kwargs):
+    """For nside=16, seq_len=3072, 48 patches"""
+    model = MaskedAutoencoder1D(
+        seq_len=3072, patch_size=64, in_chans=1, embed_dim=512, depth=8, num_heads=8,
+        decoder_embed_dim=256, decoder_depth=4, decoder_num_heads=8,
+        mlp_ratio=4, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+    return model
+
+
 def mae_1d_base_patch16(**kwargs):
     model = MaskedAutoencoder1D(
         seq_len=12288, patch_size=16, in_chans=1, embed_dim=768, depth=12, num_heads=12,
@@ -322,6 +345,8 @@ def mae_1d_large_patch64(**kwargs):
 
 
 # set recommended archs
+mae_1d_tiny_patch64 = mae_1d_tiny_patch64   # 192 patches of size 64, ~5M params
+mae_1d_small_patch64 = mae_1d_small_patch64 # 192 patches of size 64, ~15M params
 mae_1d_base_patch16 = mae_1d_base_patch16  # 768 patches of size 16
 mae_1d_base_patch32 = mae_1d_base_patch32  # 384 patches of size 32  
 mae_1d_base_patch64 = mae_1d_base_patch64  # 192 patches of size 64
