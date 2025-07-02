@@ -9,12 +9,15 @@ method:
 ## 2. Goal: MAE modeling of single Tooth
 
 observation:
+    a bad tooth is part of a good tooth. 
     a tooth is a simple surface when viewd from center-of-mass
-    HEALPix: see attached pdf (Górski 2005)
+    
 
 method:
     HEALPix NESTED ordering can translate an stl surface to a 1-d array 
         -> only have to do 1d masked autoencoding
+    
+    *HEALPix: see attached pdf (Górski 2005)
 
 
 ## 3. Goal: FEA analysis
@@ -35,4 +38,4 @@ a pre-experiment using only existing stl- format single tooth annotation yields 
 and such data can be obtained via [full mouth CBCT + tooth segmentation], the latter was actively researched
 
 
-this codebase is only a pre-experiment validating the 2nd step. 
+**this codebase is only a pre-experiment validating the 2nd step. **
