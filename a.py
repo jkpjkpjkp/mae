@@ -83,21 +83,12 @@ def ray_triangle_intersection(ray_origin: np.ndarray, ray_direction: np.ndarray,
 # [claude]
 def surface_distances_uniform_rays(vertices: np.ndarray, triangles: np.ndarray, 
                                  com: np.ndarray, n_rays: int = 1000) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Sample surface distances using evenly distributed rays in 3D space.
+    """returns: (ray_directions, distances)
+
+    ray_directions: array of shape (n_rays, 3) with unit direction vectors
+    distances: array of shape (n_rays,) with distances to surface (0 if no intersection)
     
-    Args:
-        vertices: mesh vertices
-        triangles: triangle vertex indices
-        com: center of mass point
-        n_rays: number of evenly distributed rays to cast
-        
-    Returns:
-        (ray_directions, distances) where:
-        - ray_directions: array of shape (n_rays, 3) with unit direction vectors
-        - distances: array of shape (n_rays,) with distances to surface (0 if no intersection)
-    """
-    # Generate evenly distributed ray directions
+    com = center of mass"""
     ray_directions = sample_directions(n_rays)
     distances = np.zeros(n_rays)
     
@@ -106,7 +97,7 @@ def surface_distances_uniform_rays(vertices: np.ndarray, triangles: np.ndarray,
         min_distance = float('inf')
         found_intersection = False
         
-        # Check intersection with all triangles
+        # TODO: parallelize this
         for triangle_indices in triangles:
             triangle_verts = vertices[triangle_indices]
             distance = ray_triangle_intersection(com, ray_dir, triangle_verts)
