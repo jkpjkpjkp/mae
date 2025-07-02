@@ -3,6 +3,7 @@ from functools import partial
 import torch
 import torch.nn as nn
 import healpy as hp
+import math
 
 from transformers.models.deepseek_v3.modeling_deepseek_v3 import (
     DeepseekV3Attention,
@@ -23,7 +24,7 @@ config = DeepseekV3Config(
     n_shared_experts=8,
     n_routed_experts=-2,
     kv_lora_rank=128,
-    q_lora_rank=None,
+    q_lora_rank=128,
     qk_rope_head_dim=64,
     v_head_dim=128,
 )
@@ -34,6 +35,9 @@ class MaskedAutoencoderViT(nn.Module):
                  decoder_embed_dim=64, decoder_depth=3, decoder_num_heads=8,
                  mlp_ratio=4.):
         super().__init__()
+
+        self.cos = torch.tensor([math.cos(i) for i in range(embed_dim)])
+        self.sin = torch.tensor([math.sin(i) for i in range(embed_dim)])
 
         npix = hp.nside2npix(nside)
         self.patch_embed = nn.Conv1d(1, embed_dim, kernel_size=patch_size, stride=patch_size)
@@ -107,14 +111,17 @@ class MaskedAutoencoderViT(nn.Module):
 
     def forward_encoder(self, x, mask_ratio):
         # embed patches
+        print(x.shape)
         x = self.patch_embed(x)
+        print(x.shape)
 
         # masking: length -> length * mask_ratio
         x, mask, ids_restore = self.random_masking(x, mask_ratio)
 
         # apply Transformer blocks
         for blk in self.blocks:
-            x = blk(x)
+            print(x.shape)
+            x = blk(x, (self.cos, self.sin), None)
 
         return x, mask, ids_restore
 
