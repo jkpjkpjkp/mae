@@ -12,10 +12,15 @@ def read_stl_file(filename: str) -> Tuple[np.ndarray, np.ndarray]:
     triangles = inverse_indices.reshape(-1, 3)
     return unique_vertices, triangles
 
-if __name__ == "__main__":
-    points, triangles = read_stl_file("data/A6/11.stl")
-    print(len(points))
-    print(len(triangles))
-    print(points)
-    print(triangles)
-    print(points[triangles[0]])
+
+def center_of_mass(vertices: np.ndarray, triangles: np.ndarray) -> np.ndarray:
+    """returns: center of mass coordinates [x, y, z]"""
+    total_volume = 0.0
+    weighted_centroid = np.zeros(3)
+    for triangle in triangles:
+        v0, v1, v2 = vertices[triangle]
+        volume_contribution = np.dot(v0, np.cross(v1, v2)) / 6.0
+        tetrahedron_centroid = (v0 + v1 + v2) / 4.0
+        total_volume += volume_contribution
+        weighted_centroid += volume_contribution * tetrahedron_centroid
+    return weighted_centroid / total_volume
